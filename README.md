@@ -1,128 +1,89 @@
-# E-Commerce A/B Testing Analysis: ASOS Digital Experiments
+# E-Commerce A/B Testing: What Multiple Comparisons Actually Costs You
 
-Statistical analysis of real e-commerce experiments using Welch's t-test and multiple testing corrections to demonstrate proper false discovery rate control in large-scale experimentation.
+Most people who run A/B tests know, in the abstract, that testing a lot of things without correction inflates your false-positive rate. This project starts from a more concrete question: on a real, large-scale testing dataset, how much does that actually cost you, and what does the risk look like once you're not just running one big batch of tests, but running tests every week, indefinitely, the way a real team does?
 
-## Dataset Context
+## The dataset
 
-This project analyzes the **ASOS Digital Experiments Dataset**, a publicly available research dataset released by ASOS.com in collaboration with Imperial College London. The dataset contains real A/B test results from a major global fashion retailer.
+The [ASOS Digital Experiments Dataset](https://osf.io/64jsb/), released by ASOS.com with Imperial College London (NeurIPS 2021, Liu et al.), contains real A/B test results from a major online fashion retailer: 78 experiments, 4 anonymized business metrics, and 396 experiment-variant-metric combinations. A large retailer's actual testing program being public is rare, which is why it's a better foundation for this than a synthetic dataset would be. The correction question only matters because real testing programs really do run this many tests.
 
-**Dataset Details:**
-- **Source**: ASOS.com (global online fashion retailer)
-- **Time Period**: 2019-2020  
-- **Scale**: Experiments involving hundreds of thousands to millions of users
-- **Publication**: Released alongside "Datasets for Online Controlled Experiments" (NeurIPS 2021)
-- **DOI**: [10.17605/OSF.IO/64JSB](https://osf.io/64jsb/)
+## Part 1: the one-time cost of skipping correction
 
-The dataset represents real business experiments that ASOS actually deployed to customers, making this analysis particularly valuable for understanding multiple testing challenges in production e-commerce environments.
+`analysis/multiple_testing_correction.py` runs Welch's t-test (robust to unequal variances, which real experiment arms usually have) on all 396 combinations, then compares two corrections:
 
-## Project Overview
+- **Bonferroni**: controls the probability of *any* false positive (FWER), by dividing alpha by the number of tests
+- **Benjamini-Hochberg (BH)**: controls the *expected proportion* of false positives among your significant results (FDR), which is less conservative and usually the more practical choice for exploratory testing programs
 
-This project analyzes **78 real experiments** across **4 business metrics**, testing **396 experiment-variant-metric combinations** to demonstrate proper statistical methodology for controlling false discovery rates in large-scale A/B testing programs.
+On this dataset, BH flags 67 significant results (16.9%) and Bonferroni flags 42 (10.6%). That's a 37% drop in "wins" depending purely on which correction you pick, with no change to the underlying data. That gap is the whole argument for taking correction method seriously rather than defaulting to whichever one a stats library runs first.
 
-**Research Focus**: Comparing Benjamini-Hochberg (FDR control) vs Bonferroni (FWER control) correction methods on real industry data.
+## Part 2: the compounding cost of doing this every week
 
-**Statistical Methods**: 
-- Welch's t-test for unequal variances
-- Benjamini-Hochberg procedure for False Discovery Rate control
-- Bonferroni correction for Family-Wise Error Rate control
+The static analysis above answers "how many of today's 396 results are probably noise." It doesn't answer the question a testing team actually lives with: we're not running 396 tests once, we're running some number of tests every week, forever. How fast does that catch up with us if we don't correct for it?
 
-## Key Findings
+`analysis/fdr_cadence_simulation.py` answers this with a Monte Carlo simulation. At a given weekly test cadence, it simulates many weeks of testing under a realistic mix of true nulls and true effects, and tracks two different things over time:
 
-### Multiple Testing Correction Impact
-- **67 significant discoveries** (16.9%) using BH correction (FDR ≤ 0.05)
-- **42 significant discoveries** (10.6%) using Bonferroni correction (FWER ≤ 0.05)
-- **37% reduction** in discoveries when using more conservative Bonferroni vs BH
+1. **The per-batch FDR**, which is what BH actually promises to control, recomputed fresh each week
+2. **The cumulative risk of at least one false discovery having occurred so far**, which is a different quantity, and the one that actually climbs
 
-### Experiment-Level Results
-- **27 experiments** (35%) showed at least one significant result
-- **Largest treatment effect**: +1.28 (experiment `81761c`, variant 2, metric 4)  
-- **Average effect size**: +0.056 across BH-significant results
+Those two are worth separating because it's easy to conflate them. A natural first instinct is to define "empirical FDR" as one pooled ratio: total false discoveries divided by total flagged results, summed across every week. That number doesn't actually match what BH controls, and can look badly broken in a low-signal regime for a subtle reason: under a global null, any single rejection is *by definition* 100% false, so a pooled ratio across many near-empty weekly batches swings wildly and doesn't mean what it looks like it means. The metric that actually matches BH's guarantee is the textbook one, false divided by flagged within each week's batch, averaged across simulations. That's what's plotted here, and it does hover near the nominal 5% for BH, as it should.
 
-### Cross-Metric Consistency
-All four business metrics showed similar discovery rates (~16-18%), suggesting:
-1. Balanced experimental impact across different KPIs
-2. Consistent statistical methodology across metrics
-3. No evidence of metric-specific bias in the correction procedures
-
-## Why This Analysis Matters
-
-**For Data Scientists**: Demonstrates the practical impact of multiple testing corrections on real business decisions. The 37% difference between BH and Bonferroni methods shows how correction choice affects experiment conclusions.
-
-**For E-commerce Teams**: Shows realistic effect sizes and significance rates from a major retailer, providing benchmarks for experimentation programs.
-
-**For Statisticians**: Validates multiple testing theory on production data, showing that real experiments follow expected statistical patterns.
+With the pooled-ratio bug fixed, the actual result is more interesting than either "BH is broken" or "BH is a fix-all." Even with each week's batch correctly controlled at 5%, running enough weekly batches back to back still drives the cumulative probability of at least one false "win" up toward certainty, just far more slowly than with no correction at all. At **12 tests/week** (a placeholder, so swap in the real team cadence before treating these numbers as more than illustrative), uncorrected testing hits a >90% chance of at least one false discovery within about 5 weeks. BH-corrected testing takes about 36 weeks to reach that same 90% mark — roughly seven times longer, but it still gets there. (The chart below stops at 26 weeks, where BH is still at ~81%; raise `WEEKS` in the script to see the crossing.) Correction doesn't make the long-run risk disappear, it buys time. That's itself the argument for adding sequential or alpha-spending methods on top of BH once a testing program runs indefinitely rather than in fixed batches.
 
 ## Visualizations
 
-### P-value Distributions
+![Cadence simulation](analysis/outputs/07_fdr_cadence_simulation.png)
+
+Left: expected false discoveries accumulating week over week, the quantity that visibly runs away without correction. Right: the cumulative probability that at least one false discovery has occurred by that week, for both approaches.
+
 ![P-value Distributions](analysis/outputs/01_pvalue_distributions.png)
 
-Comparison of raw vs BH-adjusted p-value distributions. The concentration of raw p-values near zero reflects real experiments with genuine treatment effects, while the BH adjustment shows proper FDR control.
+Raw vs. BH-adjusted p-value distributions on the static 396-test batch. The concentration of raw p-values near zero reflects genuine treatment effects, while the BH-adjusted distribution shows the correction pulling the marginal ones back.
 
-### BH Decision Boundary
 ![BH Curve](analysis/outputs/02_bh_curve.png)
 
-Visual representation of the Benjamini-Hochberg procedure. Points below the line represent discoveries at FDR ≤ 0.05.
+The Benjamini-Hochberg decision boundary. Points below the line are discoveries at FDR ≤ 0.05.
 
-### Effect vs Significance (Volcano Plot)
 ![Effect vs FDR](analysis/outputs/03_effect_vs_fdr.png)
 
-Treatment effects plotted against statistical significance. Red points indicate FDR-significant discoveries, showing the relationship between effect size and detectability.
+Effect size vs. significance. Red points are FDR-significant; this is the plot that shows correction isn't just throwing away small effects indiscriminately.
 
-### Discoveries by Metric
 ![Discoveries by Metric](analysis/outputs/04_discoveries_by_metric.png)
 
-Comparison of BH vs Bonferroni discoveries across ASOS's four business metrics, demonstrating consistent correction method impact.
+BH vs. Bonferroni discoveries across ASOS's four business metrics. Results are consistent across metrics, which suggests the correction-method gap isn't an artifact of one noisy metric.
 
-### Top Performing Experiments
 ![Top Experiments](analysis/outputs/05_top_experiments.png)
 
-Experiments ranked by number of significant discoveries across metrics. Multiple significant results suggest robust treatment effects.
+Experiments ranked by number of significant discoveries.
 
-### Treatment Effect Stability Over Time
 ![Top Discoveries Over Time](analysis/outputs/06_top_discoveries_over_time.png)
 
-Temporal evolution of treatment effects for top discoveries, assessing whether effects remain consistent throughout experiment duration.
+Whether the top discoveries hold up across the experiment's duration, or look more like early noise.
 
-## Technical Implementation
+## Running it
 
-### Dependencies
 ```bash
 pip install -r requirements.txt
-```
-
-### Run Analysis
-```bash
-python analysis/multiple_testing_correction.py
-```
-
-Generates all visualizations and saves results to `analysis/outputs/welch_latest_multiple_testing.csv`.
-
-### Testing
-```bash
+python analysis/multiple_testing_correction.py      # static 396-test analysis
+python analysis/fdr_cadence_simulation.py            # weekly-cadence simulation
 pytest tests/
 ```
 
-## Dataset Citation
-
-If you use this analysis or dataset, please cite:
+## Dataset citation
 
 ```
-Liu, C. H. B., Cardoso, A., Couturier, P., & McCoy, E. J. (2021). 
-Datasets for Online Controlled Experiments. 
+Liu, C. H. B., Cardoso, A., Couturier, P., & McCoy, E. J. (2021).
+Datasets for Online Controlled Experiments.
 NeurIPS Datasets and Benchmarks Track.
 ```
 
-## Limitations & Considerations
+## Limitations
 
-1. **Business Context**: Results reflect ASOS's specific business model, user base, and experimental practices
-2. **Time Period**: Data from 2019-2020 may not reflect current e-commerce patterns
-3. **Metric Anonymization**: Business metrics are anonymized, limiting interpretation of practical significance
-4. **Selection Bias**: Dataset includes only completed experiments, potentially over-representing successful tests
+- Results reflect ASOS's specific business model and user base. The correction-method gap likely generalizes better than the exact effect sizes do.
+- The 2019-2020 data may not reflect current traffic or seasonality patterns.
+- Business metrics are anonymized, which limits reading anything into *why* effects are large or small.
+- The cadence simulation's true-effect rate (15%) and effect-size distribution are assumptions calibrated loosely to this dataset's own discovery rate, not independently estimated.
 
-## Future Extensions
+## Where this goes next
 
-- **Bayesian Analysis**: Apply Bayesian multiple testing procedures
-- **Sequential Testing**: Analyze experiments with adaptive stopping rules  
-- **Effect Size Meta-Analysis**: Pool effect sizes across similar experiment types
-- **Power Analysis**: Estimate required sample sizes for different effect magnitudes
+- Swap the placeholder test cadence for a real team's actual weekly volume
+- Add a sequential/alpha-spending version of the cadence simulation, since batch-level BH alone doesn't cap the long-run risk
+- Try a Bayesian alternative to BH/Bonferroni on the same data, for comparison
