@@ -5,13 +5,14 @@ versus applying Benjamini-Hochberg (BH) correction on each week's batch.
 
 Motivation: the ASOS analysis (multiple_testing_correction.py) shows the
 one-time cost of skipping correction on a single batch of 396 tests. This
-script asks the more operational question a testing team actually faces:
-if we keep running tests every week at our normal pace, how fast does the
+script asks the more operational question a testing program actually faces:
+if tests keep going out every week at a steady pace, how fast does the
 uncorrected false-discovery problem compound, and does correcting each
 week's batch actually fix it?
 
-TESTS_PER_WEEK below is a placeholder — set it to the team's real weekly
-test volume before treating these numbers as anything but illustrative.
+TESTS_PER_WEEK below is an illustrative default, not a measured cadence.
+Set it from the weekly volume of whatever testing program you are modelling
+before reading the week counts as anything but a worked example.
 """
 
 import numpy as np
@@ -20,11 +21,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from statsmodels.stats.multitest import multipletests
 
-# --- placeholder cadence; replace with the team's actual weekly test volume ---
+# --- illustrative cadence; set from the testing program being modelled ---
 TESTS_PER_WEEK = 12
 WEEKS = 26
-TRUE_EFFECT_RATE = 0.15   # rough share of tests with a genuine effect, based on
-                          # this team's own discovery rate order of magnitude
+TRUE_EFFECT_RATE = 0.15   # rough share of tests with a genuine effect, loosely
+                          # calibrated to the ASOS batch's own discovery rate
+                          # (67/396 ~ 17%), not independently estimated
 ALPHA = 0.05
 N_SIMULATIONS = 2000
 RNG_SEED = 42

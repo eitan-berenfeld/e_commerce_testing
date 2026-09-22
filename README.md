@@ -17,7 +17,7 @@ On this dataset, BH flags 67 significant results (16.9%) and Bonferroni flags 42
 
 ## Part 2: the compounding cost of doing this every week
 
-The static analysis above answers "how many of today's 396 results are probably noise." It doesn't answer the question a testing team actually lives with: we're not running 396 tests once, we're running some number of tests every week, forever. How fast does that catch up with us if we don't correct for it?
+The static analysis above answers "how many of today's 396 results are probably noise." It doesn't answer the question an ongoing testing program actually lives with: the tests aren't a single batch of 396, they're some number every week, indefinitely. How fast does that catch up with you if you don't correct for it?
 
 `analysis/fdr_cadence_simulation.py` answers this with a Monte Carlo simulation. At a given weekly test cadence, it simulates many weeks of testing under a realistic mix of true nulls and true effects, and tracks two different things over time:
 
@@ -26,7 +26,7 @@ The static analysis above answers "how many of today's 396 results are probably 
 
 Those two are worth separating because it's easy to conflate them. A natural first instinct is to define "empirical FDR" as one pooled ratio: total false discoveries divided by total flagged results, summed across every week. That number doesn't actually match what BH controls, and can look badly broken in a low-signal regime for a subtle reason: under a global null, any single rejection is *by definition* 100% false, so a pooled ratio across many near-empty weekly batches swings wildly and doesn't mean what it looks like it means. The metric that actually matches BH's guarantee is the textbook one, false divided by flagged within each week's batch, averaged across simulations. That's what's plotted here, and it does hover near the nominal 5% for BH, as it should.
 
-With the pooled-ratio bug fixed, the actual result is more interesting than either "BH is broken" or "BH is a fix-all." Even with each week's batch correctly controlled at 5%, running enough weekly batches back to back still drives the cumulative probability of at least one false "win" up toward certainty, just far more slowly than with no correction at all. At **12 tests/week** (a placeholder, so swap in the real team cadence before treating these numbers as more than illustrative), uncorrected testing hits a >90% chance of at least one false discovery within about 5 weeks. BH-corrected testing takes about 36 weeks to reach that same 90% mark — roughly seven times longer, but it still gets there. (The chart below stops at 26 weeks, where BH is still at ~81%; raise `WEEKS` in the script to see the crossing.) Correction doesn't make the long-run risk disappear, it buys time. That's itself the argument for adding sequential or alpha-spending methods on top of BH once a testing program runs indefinitely rather than in fixed batches.
+With the pooled-ratio bug fixed, the actual result is more interesting than either "BH is broken" or "BH is a fix-all." Even with each week's batch correctly controlled at 5%, running enough weekly batches back to back still drives the cumulative probability of at least one false "win" up toward certainty, just far more slowly than with no correction at all. At **12 tests/week** — an illustrative cadence, not a measured one, so set it from the program you're actually modelling before reading the week counts as more than a worked example — uncorrected testing hits a >90% chance of at least one false discovery within about 5 weeks. BH-corrected testing takes about 36 weeks to reach that same 90% mark — roughly seven times longer, but it still gets there. (The chart below stops at 26 weeks, where BH is still at ~81%; raise `WEEKS` in the script to see the crossing.) Correction doesn't make the long-run risk disappear, it buys time. That's itself the argument for adding sequential or alpha-spending methods on top of BH once a testing program runs indefinitely rather than in fixed batches.
 
 ## Visualizations
 
@@ -84,6 +84,6 @@ NeurIPS Datasets and Benchmarks Track.
 
 ## Where this goes next
 
-- Swap the placeholder test cadence for a real team's actual weekly volume
+- Estimate the cadence and true-effect rate from a real testing program's history rather than assuming both
 - Add a sequential/alpha-spending version of the cadence simulation, since batch-level BH alone doesn't cap the long-run risk
 - Try a Bayesian alternative to BH/Bonferroni on the same data, for comparison
